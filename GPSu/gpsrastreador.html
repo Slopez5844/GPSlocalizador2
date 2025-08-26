@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPS en Tiempo Real </title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    body { 
+      margin: 0; 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eee 0%, #63586d 100%);
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 20px;
+    }
+    
+    .header h1 {
+      font-size: 2.5em;
+      margin: 0;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .header p {
+      font-size: 1.2em;
+      margin: 10px 0;
+      opacity: 0.9;
+    }
+    
+    .controls {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+    
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      min-width: 150px;
+    }
+    
+    .share-btn {
+      background: linear-gradient(45deg, #ff6b6b, #af5a3b);
+      color: white;
+    }
+    
+    .share-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(255, 107, 107, 0.4);
+    }
+    
+    .track-btn {
+      background: linear-gradient(45deg, #4834d4, #686de0);
+      color: white;
+    }
+    
+    .track-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(72, 52, 212, 0.4);
+    }
+    
+    .stop-btn {
+      background: linear-gradient(45deg, #ff9ff3, #f368e0);
+      color: white;
+    }
+    
+    .stop-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(255, 159, 243, 0.4);
+    }
+    
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    
+    .status.active {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status.inactive {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    
+    #map { 
+      height: 60vh; 
+      width: 100%; 
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    
+    .device-id {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      padding: 10px;
+      border-radius: 10px;
+      margin-top: 10px;
+      font-family: monospace;
+      font-size: 14px;
+      word-break: break-all;
+    }
+    
+    @media (max-width: 768px) {
+      .button-group {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      button {
+        width: 100%;
+        max-width: 250px;
+      }
+      
+      #map {
+        height: 50vh;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🌍 Localizacion GPS </h1>
+    <p>Localización automática </p>
+  </div>
+
+  <div class="controls">
+    <div class="button-group">
+      <button class="share-btn" onclick="startAutoSharing()">📍 Compartir Mi Ubicación</button>
+      <button class="track-btn" onclick="startAutoTracking()">👁️ Monitorear dispositivos</button>
+      <button class="stop-btn" onclick="stopAll()">⏹️ Detener Todo</button>
+    </div>
+    
+    <div id="status" class="status inactive">
+      Sistema detenido - Selecciona una opción
+    </div>
+    
+    <div id="deviceId" class="device-id" style="display: none;">
+      ID del dispositivo: <span id="deviceIdText"></span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAEknGYBeMlRTHvYoqYV7CJohy1L5vXD4M",
+    authDomain: "controlparental-gps.firebaseapp.com",
+    projectId: "controlparental-gps",
+    storageBucket: "controlparental-gps.firebasestorage.app",
+    messagingSenderId: "720521468020",
+    appId: "1:720521468020:web:39e3fb48aee0a014c89921",
+    measurementId: "G-4LX0BXYFN9"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // Inicializar mapa
+  let map = L.map('map').setView([14.6349, -90.5069], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  // Variables globales
+  let markers = {};
+  let watchId = null;
+  let trackingMode = false;
+  let sharingMode = false;
+  let currentDeviceId = generateDeviceId();
+
+  // Generar ID único para el dispositivo
+  function generateDeviceId() {
+    return 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+  }
+
+  // Actualizar estado visual
+  function updateStatus(message, type = 'info') {
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = message;
+    statusEl.className = `status ${type}`;
+  }
+
+  // Mostrar/ocultar ID del dispositivo
+  function toggleDeviceId(show) {
+    const deviceIdEl = document.getElementById('deviceId');
+    const deviceIdTextEl = document.getElementById('deviceIdText');
+    
+    if (show) {
+      deviceIdTextEl.textContent = currentDeviceId;
+      deviceIdEl.style.display = 'block';
+    } else {
+      deviceIdEl.style.display = 'none';
+    }
+  }
+
+  // Función para compartir ubicación automáticamente
+  function startAutoSharing() {
+    if (sharingMode) {
+      updateStatus("Ya estás compartiendo tu ubicación", "info");
+      return;
+    }
+
+    updateStatus("Iniciando compartición de ubicación...", "info");
+    toggleDeviceId(true);
+
+    if (!navigator.geolocation) {
+      updateStatus("Tu navegador no soporta geolocalización", "inactive");
+      return;
+    }
+
+    // Solicitar permisos y empezar a compartir
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        sharingMode = true;
+        updateStatus(`✅ Compartiendo ubicación activamente`, "active");
+        
+        // Compartir ubicación inicial
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        
+        db.ref("active_devices/" + currentDeviceId).set({
+          lat: lat,
+          lng: lng,
+          lastUpdate: Date.now(),
+          deviceType: 'sharing',
+          accuracy: position.coords.accuracy
+        });
+
+        // Configurar seguimiento continuo
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            
+            db.ref("active_devices/" + currentDeviceId).update({
+              lat: lat,
+              lng: lng,
+              lastUpdate: Date.now(),
+              accuracy: pos.coords.accuracy
+            });
+            
+            console.log("Ubicación enviada:", lat, lng);
+          },
+          (error) => {
+            console.error("Error al obtener ubicación:", error);
+            updateStatus("Error al obtener ubicación: " + error.message, "inactive");
+          },
+          { 
+            enableHighAccuracy: true, 
+            timeout: 10000, 
+            maximumAge: 30000 
+          }
+        );
+      },
+      (error) => {
+        updateStatus("Error: No se pudo acceder a la ubicación - " + error.message, "inactive");
+        console.error("Error de geolocalización:", error);
+      }
+    );
+  }
+
+  // Función para rastrear dispositivos automáticamente
+  function startAutoTracking() {
+    if (trackingMode) {
+      updateStatus("Ya estás viendo dispositivos activos", "info");
+      return;
+    }
+
+    trackingMode = true;
+    updateStatus("👁️ Monitoreando dispositivos activos...", "active");
+
+    // Escuchar todos los dispositivos activos
+    db.ref("active_devices").on("value", (snapshot) => {
+      if (snapshot.exists()) {
+        const devices = snapshot.val();
+        let activeCount = 0;
+        
+        // Limpiar marcadores antiguos
+        Object.keys(markers).forEach(deviceId => {
+          if (!devices[deviceId]) {
+            map.removeLayer(markers[deviceId]);
+            delete markers[deviceId];
+          }
+        });
+
+        // Agregar/actualizar marcadores
+        Object.keys(devices).forEach(deviceId => {
+          const device = devices[deviceId];
+          const { lat, lng, lastUpdate, accuracy } = device;
+          
+          // Verificar si el dispositivo está activo (menos de 5 minutos)
+          const isActive = (Date.now() - lastUpdate) < 300000;
+          
+          if (isActive) {
+            activeCount++;
+            
+            if (markers[deviceId]) {
+              // Actualizar marcador existente
+              markers[deviceId].setLatLng([lat, lng]);
+              markers[deviceId].bindPopup(`
+                <b>Dispositivo:</b> ${deviceId}<br>
+                <b>Precisión:</b> ${Math.round(accuracy)}m<br>
+                <b>Última actualización:</b> ${new Date(lastUpdate).toLocaleTimeString()}
+              `);
+            } else {
+              // Crear nuevo marcador
+              const icon = L.divIcon({
+                html: '📍',
+                iconSize: [30, 30],
+                className: 'custom-div-icon'
+              });
+              
+              markers[deviceId] = L.marker([lat, lng], {icon})
+                .addTo(map)
+                .bindPopup(`
+                  <b>Dispositivo:</b> ${deviceId}<br>
+                  <b>Precisión:</b> ${Math.round(accuracy)}m<br>
+                  <b>Última actualización:</b> ${new Date(lastUpdate).toLocaleTimeString()}
+                `);
+            }
+          }
+        });
+
+        if (activeCount > 0) {
+          updateStatus(`👁️ Monitoreando ${activeCount} dispositivo(s) activo(s)`, "active");
+          
+          // Ajustar vista del mapa para mostrar todos los marcadores
+          if (Object.keys(markers).length > 0) {
+            const group = new L.featureGroup(Object.values(markers));
+            map.fitBounds(group.getBounds().pad(0.1));
+          }
+        } else {
+          updateStatus("👁️ No hay dispositivos activos en este momento", "info");
+        }
+      } else {
+        updateStatus("👁️ No hay dispositivos compartiendo ubicación", "info");
+      }
+    });
+  }
+
+  // Detener todas las operaciones
+  function stopAll() {
+    // Detener seguimiento de ubicación
+    if (watchId) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+
+    // Detener modo compartir
+    if (sharingMode) {
+      db.ref("active_devices/" + currentDeviceId).remove();
+      sharingMode = false;
+    }
+
+    // Detener modo rastreo
+    if (trackingMode) {
+      db.ref("active_devices").off();
+      trackingMode = false;
+    }
+
+    // Limpiar marcadores
+    Object.values(markers).forEach(marker => map.removeLayer(marker));
+    markers = {};
+
+    // Generar nuevo ID para próxima sesión
+    currentDeviceId = generateDeviceId();
+
+    updateStatus("Sistema detenido - Selecciona una opción", "inactive");
+    toggleDeviceId(false);
+  }
+
+  // Limpiar dispositivos inactivos cada minuto
+  setInterval(() => {
+    if (trackingMode) {
+      const now = Date.now();
+      db.ref("active_devices").once("value", (snapshot) => {
+        if (snapshot.exists()) {
+          const devices = snapshot.val();
+          Object.keys(devices).forEach(deviceId => {
+            const device = devices[deviceId];
+            // Eliminar dispositivos inactivos por más de 10 minutos
+            if (now - device.lastUpdate > 600000) {
+              db.ref("active_devices/" + deviceId).remove();
+            }
+          });
+        }
+      });
+    }
+  }, 60000);
+
+  // Limpiar al cerrar la página
+  window.addEventListener('beforeunload', () => {
+    if (sharingMode) {
+      db.ref("active_devices/" + currentDeviceId).remove();
+    }
+  });
+</script>
+
+<style>
+.custom-div-icon {
+  background: transparent;
+  border: none;
+  text-align: center;
+  font-size: 24px;
+}
+</style>
+
+</body>
+</html>
